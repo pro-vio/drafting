@@ -1,0 +1,26 @@
+{
+  "skill_name": "zotero-citations",
+  "evals": [
+    {
+      "id": 0,
+      "name": "rebuild-stale-references",
+      "prompt": "The References section in refs_demo.md is stale — I edited the body and the list no longer matches what's actually cited. My citations come from my Zotero library (Zotero is open). Rebuild the manuscript so the References list reflects exactly the works cited in the text, and give me an HTML render to look at.",
+      "expected_output": "An HTML render where the in-text citations resolve (Olson 2003; Ostrom 2010; Ostrom and Ostrom 1999 narrative) and the References list contains exactly those three cited works — the stale/uncited hand-made entries gone. The [@key] markers in the source are preserved.",
+      "files": ["fixtures/refs_demo.md"]
+    },
+    {
+      "id": 1,
+      "name": "legislation-list",
+      "prompt": "Generate the 'Legislation and case law' section for leg_demo.md from my Zotero collection named 'legislation' (collection key WZGQX8MS), including only the acts that are actually cited in the text, sorted chronologically. Zotero is open. Write the section into the file.",
+      "expected_output": "The '# Legislation and case law' section filled with only the cited acts — Fiscal Code (2015), Condominium Law, HCL Oradea 840/2015, HCL Oradea 503/2017 — in chronological order, each in the house format. Uncited acts from the 32-item collection are excluded.",
+      "files": ["fixtures/leg_demo.md"]
+    },
+    {
+      "id": 2,
+      "name": "switch-style-apa",
+      "prompt": "Re-render the citations in refs_demo.md using APA style instead of Chicago. My references are in Zotero (it's open). Produce an HTML output.",
+      "expected_output": "An HTML render with the same citations formatted per APA (e.g. '(Olson, 2003)') and an APA-formatted reference list, produced by swapping the CSL style — not by hand-editing citation text.",
+      "files": ["fixtures/refs_demo.md"]
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+[
+  {"query": "my references list in the thesis is out of date — I added and deleted a bunch of citations and the bibliography at the end no longer matches what's actually cited. they're all in zotero. can you rebuild it?", "should_trigger": true},
+  {"query": "switch my paper's citations from chicago to APA, the refs all come from my zotero library", "should_trigger": true},
+  {"query": "I've got a manuscript.md full of [@key] markers and need to render it to a Word doc with the in-text citations and a references section", "should_trigger": true},
+  {"query": "the works cited section went stale after I accepted all the track changes in word — fix it so it reflects the citations that are really in the text", "should_trigger": true},
+  {"query": "I need a separate chronological list of every law and court decision I cite in this heritage-law article, properly formatted — the statutes live in a zotero collection", "should_trigger": true},
+  {"query": "add a bibliography to my pandoc document from my reference manager", "should_trigger": true},
+  {"query": "one of my entries shows up in ALL CAPS in the rendered bibliography and another has the place and publisher swapped — fix the items and re-render", "should_trigger": true},
+  {"query": "I cite two different Fiscal Codes, 2003 and 2015, and the short titles are inconsistent in my legislation list — regenerate it, only the ones actually cited", "should_trigger": true},
+  {"query": "an item with a long institutional author keeps generating an ugly citation key, can you pin a clean one and rebuild the citations", "should_trigger": true},
+  {"query": "the Olson book is a 2003 reprint of a 1965 original — I want the in-text cite to show both years the chicago way, then re-render the bibliography", "should_trigger": true},
+  {"query": "convert this finished Word document to a PDF for me", "should_trigger": false},
+  {"query": "write me a literature review section that summarizes these five papers I attached", "should_trigger": false},
+  {"query": "extract all the URLs out of this markdown file into a plain list", "should_trigger": false},
+  {"query": "help me set up a Zotero account and explain how to import my PDFs into it", "should_trigger": false},
+  {"query": "my python script that reads a sqlite database is throwing an 'database is locked' error, can you debug it", "should_trigger": false},
+  {"query": "translate this Romanian academic abstract into English", "should_trigger": false},
+  {"query": "make a bar chart of how many times each paper has been cited per year", "should_trigger": false},
+  {"query": "what's the actual difference between Chicago author-date and APA citation styles?", "should_trigger": false},
+  {"query": "install pandoc and its dependencies on my windows laptop", "should_trigger": false},
+  {"query": "reformat the footnotes in this essay so they become endnotes instead", "should_trigger": false}
+]
