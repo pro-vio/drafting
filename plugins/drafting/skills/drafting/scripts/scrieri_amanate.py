@@ -29,6 +29,7 @@ Operațiile recunoscute — toate din `zot.py`, niciuna nouă:
     {"op": "set_creators", "item": "ABCD1234", "creatori": []}      # [] scoate creatorii
     {"op": "muta_atasament", "atasament": "WXYZ5678", "parinte": "capitol"}   # PDF-ul trece sub alt item
     {"op": "sterge_camp", "item": "ABCD1234", "camp": "pages"}
+    {"op": "fuzioneaza", "pastrat": "ABCD1234", "dublura": "EFGH5678"}   # notele trec, dublura la coș
 
 `set_field` și `relateaza` au intrat pe 12 octombrie 2026, din cazul real: o corecție de câmp pe
 actele unei colecții nu putea lăsa nicio sarcină cu Zotero deschis, iar un act adus cu Zotero
@@ -81,7 +82,8 @@ import pdf_text_cache as ptc  # noqa: E402
 DOSAR = os.path.join(zot.LUCRU, "scrieri-amanate")
 VERSIUNE = 1
 OPERATII = ("add_item", "attach_pdf", "add_to_collection", "ensure_cached", "set_field", "relateaza",
-            "set_creators", "la_cos", "muta_atasament", "sterge_camp", "adauga_in_extra", "scoate_din_colectie", "add_collection")
+            "set_creators", "la_cos", "muta_atasament", "sterge_camp", "adauga_in_extra", "scoate_din_colectie", "add_collection",
+            "fuzioneaza")
 
 
 def _asigura_dosar():
@@ -287,6 +289,50 @@ def _executa(cur, op, chei):
             chei[op["nume"]] = cheie
             chei["colectie:" + op["nume"]] = (cheie, cid)
         return {"colectie": op["colectie"], "cheie": cheie}
+    if fel == "fuzioneaza":
+        # Două iteme ale aceleiași lucrări: rămâne `pastrat`, `dublura` trece la coș. Ce rămâne o alege cine pune
+        # sarcina, după regula autorului (15.10.2026): originalul (articolul publicat în revistă, nu o copie), apoi
+        # cel care nu cere OCR, apoi cel citat, apoi oricare. Operația face doar partea mecanică, iar scopul ei e
+        # al regulii: „să nu ștergi notele și versiunile originale, cu care se lucrează ușor".
+        #   - notele dublurii trec la itemul păstrat; nota de cache a textului rămâne, fiindcă descrie fișierul
+        #     dublurii, nu lucrarea;
+        #   - atașamentele dublurii care au adnotări sau note trec și ele; celelalte merg la coș cu dublura,
+        #     de unde se pot scoate;
+        #   - itemul păstrat intră în toate colecțiile dublurii;
+        #   - itemul păstrat primește `dc:replaces` către dublură, ca la o fuziune făcută din Zotero.
+        import pdf_text_cache  # noqa: PLC0415
+        pk, dk = chei.get(op["pastrat"], op["pastrat"]), chei.get(op["dublura"], op["dublura"])
+        pid, did = zot.item_id_for_key(cur, pk), zot.item_id_for_key(cur, dk)
+        if pid is None or did is None or pid == did:
+            raise LookupError("itemul păstrat %r sau dublura %r nu există (sau sunt același)" % (pk, dk))
+        viu = "itemID NOT IN (SELECT itemID FROM deletedItems)"
+        note = [(n, t) for n, t in cur.execute("SELECT itemID, note FROM itemNotes WHERE parentItemID=? AND " + viu,
+                                               (did,))]
+        mutate_note = [n for n, t in note if pdf_text_cache.MARKER not in (t or "")]
+        for n in mutate_note:
+            cur.execute("UPDATE itemNotes SET parentItemID=? WHERE itemID=?", (pid, n))
+            zot.touch(cur, n)
+        mutate_atas = []
+        for (aid,) in cur.execute("SELECT itemID FROM itemAttachments WHERE parentItemID=? AND " + viu,
+                                  (did,)).fetchall():
+            adn = cur.execute("SELECT COUNT(*) FROM itemAnnotations WHERE parentItemID=? AND " + viu, (aid,)).fetchone()[0]
+            nn = [t for (t,) in cur.execute("SELECT note FROM itemNotes WHERE parentItemID=? AND " + viu, (aid,))]
+            if adn or any(pdf_text_cache.MARKER not in (t or "") for t in nn):
+                cur.execute("UPDATE itemAttachments SET parentItemID=? WHERE itemID=?", (pid, aid))
+                zot.touch(cur, aid)
+                mutate_atas.append(zot.key_for_item_id(cur, aid))
+        colectii = [c for (c,) in cur.execute("SELECT collectionID FROM collectionItems WHERE itemID=?", (did,))]
+        for c in colectii:
+            cur.execute("INSERT OR IGNORE INTO collectionItems (collectionID, itemID, orderIndex) VALUES (?,?,0)",
+                        (c, pid))
+        pred = zot._predicat_id(cur, "dc:replaces")
+        cur.execute("INSERT OR IGNORE INTO itemRelations (itemID, predicateID, object) VALUES (?,?,?)",
+                    (pid, pred, "http://zotero.org/users/%s/items/%s" % (zot.detect_user_id(), dk)))
+        cur.execute("INSERT OR IGNORE INTO deletedItems (itemID, dateDeleted) VALUES (?, ?)", (did, zot.now()))
+        zot.touch(cur, pid)
+        zot.touch(cur, did)
+        return {"pastrat": pk, "dublura_la_cos": dk, "note_mutate": len(mutate_note), "atasamente_mutate": mutate_atas,
+                "colectii_adaugate": len(colectii)}
     if fel == "scoate_din_colectie":
         # Itemul iese din colecție și rămâne în bibliotecă. Cazul: capitole puse în colecțiile volumului, deși
         # colecțiile urmează citările (regula autorului, 13.10.2026: necitat → doar My Library).
@@ -355,6 +401,9 @@ def ruleaza(doar_arata=False):
                 continue
             if op.get("op") == "set_creators":
                 print("      set_creators %s = %s" % (_titlu(op.get("item")), op.get("creatori") or "[] (fără creator)"))
+                continue
+            if op.get("op") == "fuzioneaza":
+                print("      fuzioneaza: rămâne %s; la coș %s" % (_titlu(op.get("pastrat")), op.get("dublura")))
                 continue
             print("      %s %s" % (op.get("op"), op.get("tip") or op.get("cale") or
                                    op.get("colectie") or ""))

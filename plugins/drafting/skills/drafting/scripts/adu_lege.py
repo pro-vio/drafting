@@ -233,8 +233,24 @@ def forma(ident, h=None):
         antet = re.search(r'<span class="S_HDR">(.*?)</span>', h[bloc:], re.S) if bloc >= 0 else None
         leg = sorted(set(re.findall(r"DetaliiDocumentAfis/(\d+)", antet.group(1)))) if antet else []
         if len(leg) == 1:
+            # Legătura din antet se ia doar dacă pagina ei arată ca selectată ACEEAȘI formă. La formele din 2025
+            # ale Codului fiscal antetul trimitea la textul din 29.07.2024 (286009), iar la Codul muncii din
+            # 29.09.2025 la cel din 2023; pagina formei avea însă și legătura bună, a cărei pagină selectează
+            # forma cerută (măsurat pe șapte forme, 15.10.2026). Altfel, din toate legăturile `Afis` ale
+            # paginii se alege cea care selectează forma și e a aceluiași act (aceeași dată de adoptare).
+            a_forma = antet_act(h)
+            h_leg = ia(AFIS % leg[0])
+            if a_forma.get("consolidare") and antet_act(h_leg).get("consolidare") != a_forma["consolidare"]:
+                for alt in sorted(set(re.findall(r"DetaliiDocumentAfis/(\d+)", h)) - {leg[0]}, key=int):
+                    h_alt = ia(AFIS % alt)
+                    a_alt = antet_act(h_alt)
+                    if a_alt.get("consolidare") == a_forma["consolidare"] and a_alt.get("data") == a_forma.get("data"):
+                        print("  antetul paginii %s trimite la Afis/%s, care e altă formă; textul formei %s e pe "
+                              "Afis/%s" % (ident, leg[0], a_forma["consolidare"], alt))
+                        leg, h_leg = [alt], h_alt
+                        break
             print("  pagina %s n-are text, doar antet; textul e pe Afis/%s" % (ident, leg[0]))
-            h = ia(AFIS % leg[0])
+            h = h_leg
             surse.append(AFIS % leg[0])
     marc = [(m.start(), m.group(1), m.group(2)) for m in re.finditer(
         r'<[^>]*id="id_(cap|art|sec|tit|anx)[A-Za-z0-9_]*?(_ttl|_bdy)"[^>]*>', h)]
@@ -456,6 +472,12 @@ def antet_act(h):
     out = {"denumire": den, "emitent": emitent, "republicat": republicat,
            "data": _data_ro(den.split(" din ", 1)[1] if " din " in den else ""),
            "mo": ("nr. %s din %s" % (mo_pub.group(1), mo_pub.group(2))) if mo_pub else ""}
+    if not out["data"]:
+        # Ordinul comun n-are dată în denumire („ORDIN nr. 299/455/435/729/2025"): fiecare emitent are numărul și
+        # data lui („… Nr. 299 din 4 martie 2025; … Nr. 729 din 6 martie 2025"). Data actului e PRIMA semnătură
+        # (decizia autorului, 15.10.2026); Legea 24/2000, art. 46 alin. (3), nu spune care, la semnări diferite.
+        date = [d for d in (_data_ro(x) for x in re.findall(r"din\s+\d{1,2}\s+\S+\s+\d{4}", emitent)) if d]
+        out["data"] = min(date) if date else None
     # La un act republicat, antetul paginii poartă Monitorul republicării; publicarea inițială
     # stă în nota de republicare din text.
     out["mo_initial"], out["mo_republicare"] = out["mo"], ""
@@ -467,6 +489,109 @@ def antet_act(h):
     sel = re.search(r"title='Consolidarea din ([\d.]+)' id='fa_selectata'", h)
     out["consolidare"] = sel.group(1) if sel else ""
     return out
+
+
+def cod_din_antet(den):
+    """Codul actului din denumirea de pe Portal: „ORDONANȚĂ DE URGENȚĂ nr. 69 din 13 noiembrie 2019" -> „69/2019";
+    la un ordin comun, „ORDIN nr. 299/455/435/729/2025" -> „299/455/435/729/2025", cum îl ține deja biblioteca
+    („1.192/745/2020"). "" dacă denumirea n-are niciuna dintre forme.
+
+    Cazul: fără `--cod`, codul ieșea gol — unealta nu-l citea deloc din pagină —, iar căutarea de dubluri pe
+    codul gol găsea mii de iteme și refuza actul (13 și 15.10.2026)."""
+    m = re.search(r"\bnr\.\s*([\d.]+(?:/[\d.]+)*/\d{4})\b", den or "")
+    if m:
+        return m.group(1)
+    m = re.search(r"\bnr\.\s*([\d.]+)\s+din\s+\d{1,2}\s+\S+\s+(\d{4})", den or "")
+    return "%s/%s" % (m.group(1), m.group(2)) if m else ""
+
+
+# Funcțiile care emit ordine, cum apar în formula introductivă („ministrul finanțelor emite următorul ordin") și cum
+# intră în titlu, la genitiv („Ordinul ministrului finanțelor"). Se schimbă doar cuvântul-cap; complementul e deja
+# la genitiv în formulă. O funcție care nu e aici oprește compunerea: se adaugă, nu se ghicește.
+FUNCTII_GENITIV = {"ministrul": "ministrului", "președintele": "președintelui", "directorul": "directorului",
+                   "guvernatorul": "guvernatorului", "secretarul": "secretarului", "viceprim-ministrul":
+                   "viceprim-ministrului", "procurorul": "procurorului", "inspectorul": "inspectorului"}
+
+
+def _text_pagina(h):
+    return html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", h)))
+
+
+def titlu_oficial(h, cod):
+    """Titlul oficial al actului, după Legea 24/2000, art. 41: denumirea generică după categoria juridică și după
+    autoritatea emitentă, numărul și anul (alin. (6)), apoi obiectul reglementării. "" când nu se poate compune
+    din pagină — atunci se dă cu `--denumire`.
+
+    Forma e cea pe care biblioteca o folosește deja („Legea nr.", „Hotărârea Guvernului nr.", „Ordonanța de
+    urgență a Guvernului nr.", „Ordinul ministrului …"). La un ordin, emitentul se ia din formula introductivă a
+    textului, nu din antet: antetul dă instituția („MINISTERUL FINANȚELOR"), titlul cere funcția („ministrului
+    finanțelor") — decizia autorului, 15.10.2026: „o iei din text"."""
+    a = antet_act(h)
+    den = (a.get("denumire") or "").upper()
+    # Obiectul e textul de imediat după antet: `S_HDR` pe paginile noi, `S_PAR` pe cele vechi (Legea 24/2000).
+    hdr = re.search(r'class="S_DEN"[^>]*>.*?</span>\s*<span class="S_(?:HDR|PAR)"[^>]*>(.*?)</span>', h, re.S)
+    obiect = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", hdr.group(1)))).strip() if hdr else ""
+    if not obiect or not cod:
+        return ""
+    if den.startswith("LEGE "):
+        gen = "Legea"
+    elif den.startswith("ORDONANȚĂ DE URGENȚĂ"):
+        gen = "Ordonanța de urgență a Guvernului"
+    elif den.startswith("ORDONANȚĂ "):
+        gen = "Ordonanța Guvernului"
+    elif den.startswith("HOTĂRÂRE ") and "GUVERNUL" in (a.get("emitent") or "").upper():
+        gen = "Hotărârea Guvernului"
+    elif den.startswith("ORDIN "):
+        functii = functii_din_formula(_text_pagina(h))
+        if not functii:
+            return ""
+        gen = "Ordinul " + functii[0] + "".join(
+            (" și al " if i == len(functii) - 1 else ", al ") + f for i, f in enumerate(functii[1:], 1))
+    else:
+        return ""
+    return "%s nr. %s %s" % (gen, cod, obiect)
+
+
+def functii_din_formula(text):
+    """Funcțiile emitenților unui ordin, la genitiv, din formula introductivă („…, ministrul sănătății și
+    președintele Casei Naționale de Asigurări de Sănătate emit următorul ordin"). [] dacă formula lipsește sau
+    are o funcție necunoscută."""
+    m = re.search(r"([^:;]{0,600}?)\s+emit(?:e)?\s+(?:următorul|prezentul)\s+ordin", text)
+    if not m:
+        return []
+    cap = "|".join(re.escape(k) for k in FUNCTII_GENITIV)
+    inainte = m.group(1)
+    # Lista de emitenți începe la ultima virgulă urmată de o funcție care nu mai e ea însăși urmată, mai încolo,
+    # de altceva decât emitenți: se încearcă începuturile de la stânga la dreapta, primul care se descompune
+    # integral în funcții e lista.
+    for start in [0] + [x.end() for x in re.finditer(r",\s*(?=(?:%s)\b)" % cap, inainte)]:
+        bucati = re.split(r",\s*(?=(?:%s)\b)|\s+și\s+(?=(?:%s)\b)" % (cap, cap), inainte[start:].strip())
+        if bucati and all(re.match(r"(?:%s)\b" % cap, b) for b in bucati):
+            return [FUNCTII_GENITIV[b.split()[0]] + b[len(b.split()[0]):] for b in bucati]
+    return []
+
+
+MICI_IN_NUME = {"de", "și", "pentru", "în", "din", "a", "al", "ale", "cu", "la", "pe", "privind"}
+
+
+def emitent_din_antet(emitent):
+    """Emitentul pentru primul rând din Extra (citari-zotero.md §G: emitentul e instituția), din blocul EMITENT al
+    antetului Portalului. Antetul scrie cu majuscule; numele instituției se scrie cu majusculă la fiecare cuvânt, în
+    afară de cuvintele de legătură („Agenția Națională de Administrare Fiscală"). La un ordin comun, numărul și data
+    fiecărui emitent („Nr. 299 din 4 martie 2025") ies, iar emitenții rămân despărțiți prin „; ".
+
+    „PARLAMENTUL" devine „Parlamentul României", numele din Constituție (art. 61), cum îl au legile din bibliotecă
+    (decizia autorului, 15.10.2026)."""
+    out = []
+    for e in (emitent or "").split(";"):
+        e = re.sub(r"\s+Nr\.?\s.*$", "", " ".join(e.split()), flags=re.I).strip()
+        if not e:
+            continue
+        cuv = e.lower().split(" ")
+        e = " ".join(w if (i and w in MICI_IN_NUME) else "-".join(p[:1].upper() + p[1:] for p in w.split("-"))
+                     for i, w in enumerate(cuv))
+        out.append("Parlamentul României" if e == "Parlamentul" else e)
+    return "; ".join(out)
 
 
 def istoric_publicare(antet):
@@ -543,6 +668,18 @@ def acelasi_tip(r, denumire):
     return t1 is None or t2 is None or t1 == t2
 
 
+def acelasi_emitent(r, emitent):
+    """Același cod și același tip nu ajung la ordine: ordinul ANRE nr. 109/2022 și ordinul ministrului finanțelor
+    nr. 109/2022 au fost luate drept același act (15.10.2026). Se cere și același emitent, citit de pe primul rând
+    din Extra al itemului (citari-zotero.md §G) și comparat fără majuscule și diacritice, ca mulțime (la ordinele
+    comune ordinea emitenților poate diferi). Când unul dintre ei lipsește, decid codul și tipul, ca înainte."""
+    def mult(s):
+        return {_fara_diacritice(x).lower().strip() for x in re.split(r"[;,]", s or "") if x.strip()}
+    e1 = mult(((camp(r[0], "extra") or "").split("\n") or [""])[0])
+    e2 = mult(emitent)
+    return not e1 or not e2 or e1 == e2
+
+
 def _cod_normal(cod):
     """Codul fara spatii de margine si fara punctul de mii din numar: „1.107/2025" = „1107/2025".
 
@@ -607,6 +744,46 @@ def arata_duplicatele(existent, cod, data_forma="", pomenite=()):
               "formele se țin ca obiecte separate, cu codul păstrat.")
 
 
+def compara_dubluri(existent):
+    """Mai multe iteme pentru aceeași formă: se citesc textele lor memoizate și se spune ce s-a găsit. „Dublură"
+    se scrie numai când textele sunt la fel (decizia autorului, 15.10.2026: „doar după citirea lor"); aceeași
+    pagină și același cod nu ajung — fișierele pot fi diferite. Nu se filează și nu se fuzionează nimic: fuziunea
+    o decide autorul.
+
+    Cazul: două perechi create în aceeași secundă la o restaurare (8.10.2026); unealta le lua drept două forme și
+    cerea `--la-data`, care nu le putea deosebi, deci nu fila nimic, fără să spună de ce."""
+    import pdf_text_cache  # noqa: PLC0415
+    con = zot._ro()
+    texte = {}
+    try:
+        for r in existent:
+            iid = zot.item_id_for_key(con, r[0])
+            atas = [k for k, in con.execute(
+                "SELECT i.key FROM itemAttachments ia JOIN items i USING(itemID) WHERE ia.parentItemID=? AND "
+                "i.itemID NOT IN (SELECT itemID FROM deletedItems)", (iid,))]
+            t = [pdf_text_cache.get_cached(k) for k in atas]
+            # Se compară textul actului, fără antetul pus de unealta asta în PDF (denumirea, rândul formei, sursa,
+            # până la linia de „="): două versiuni ale uneltei scriu rândul formei diferit, iar actul e același.
+            # Măsurat pe cele două perechi din 8.10.2026: 22 de caractere de diferență, toate în antet.
+            t = [x.split("=" * 78, 1)[-1] if x else x for x in t]
+            texte[r[0]] = " ".join(" ".join((x or "").replace(" ", " ").split()) for x in t) if t and all(t) else None
+    finally:
+        con.close()
+    chei = ", ".join(texte)
+    if any(v is None for v in texte.values()):
+        fara = [k for k, v in texte.items() if v is None]
+        print("Nu filez nimic în colecție: %d iteme pentru aceeași formă (%s). Nu le pot compara: %s n-au text "
+              "memoizat (`prefetch_collection.py`)." % (len(texte), chei, ", ".join(fara)))
+    elif len(set(texte.values())) == 1:
+        print("Nu filez nimic în colecție: %d iteme ale aceleiași forme, cu același text (%s caractere): DUBLURĂ, "
+              "nu forme diferite. Fuziunea o decide autorul; după ea, reia." % (len(texte), len(next(iter(texte.values())))))
+        print("  Iteme: %s" % chei)
+    else:
+        print("Nu filez nimic în colecție: %d iteme pentru aceeași formă (%s), dar textele lor diferă (%s caractere). "
+              "Nu e o dublură sigură; compară-le înainte de orice fuziune."
+              % (len(texte), chei, " / ".join(str(len(v)) for v in texte.values())))
+
+
 def deja_in_biblioteca(a, existent):
     """Actul e deja în bibliotecă: dacă e o singură formă potrivită și nu stă în colecția cerută,
     se filează acolo — fără a-l aduce încă o dată de pe Portal.
@@ -618,8 +795,7 @@ def deja_in_biblioteca(a, existent):
     cid = getattr(a, "_cid", None)
     if cid is None or len(existent) != 1:
         if cid is not None and len(existent) > 1:
-            print("Nu filez nimic în colecție: sunt %d forme, iar care trebuie spune `--la-data`."
-                  % len(existent))
+            compara_dubluri(existent)
         return None
     cheie = existent[0][0]
     con = zot._ro()
@@ -652,7 +828,16 @@ def amana(cid_cheie, p):
     if getattr(a, "la_item", ""):
         ops = ops_la_item(a.la_item, p)
         return sa.lasa("act normativ %s, atașat la %s" % (a.scurt, a.la_item), ops, cine="adu_lege.py")
-    ops = [{"op": "add_item", "tip": "statute", "campuri": campuri_item(p), "colectie": cid_cheie,
+    campuri = campuri_item(p)
+    # Aceeași formă (aceeași pagină a Portalului) care așteaptă deja în coadă nu se mai pune o dată: la scriere
+    # ar ieși două iteme, fiindcă `daca_exista="creeaza"` lasă formele aceluiași act să coexiste. Cazul: o rulare
+    # respinsă de autor după ce apucase să lase sarcina, urmată de rularea bună; ciclul le-a scris pe amândouă
+    # (ordinul comun 2.066/…/2025, 15.10.2026). Decizia autorului: „repară asta".
+    for cale, d in sa.sarcini():
+        for o in d.get("operatii", []):
+            if o.get("op") == "add_item" and campuri.get("url") and (o.get("campuri") or {}).get("url") == campuri["url"]:
+                return "NIMIC — aceeași formă (%s) așteaptă deja în coadă, în %s" % (campuri["url"], os.path.basename(cale))
+    ops = [{"op": "add_item", "tip": "statute", "campuri": campuri, "colectie": cid_cheie,
             "daca_exista": "creeaza", "nume": "act"},
            {"op": "attach_pdf", "parinte": "act", "cale": p["tinta"], "nume": "pdf"},
            {"op": "ensure_cached", "atasament": "pdf", "cale": p["tinta"]}]
@@ -832,8 +1017,10 @@ def pregateste(a):
     # refuzul arăta ca un duplicat adevărat. `zot.find` caută în toate câmpurile, deci prinde și
     # itemul al cărui cod nu apare în denumire; potrivirile doar din denumire se arată separat.
     potriviri = zot.find(a.cod) if not a.doar_verifica else []
+    emitent_act = (a.emitent or emitent_din_antet(antet_act(ia(AFIS % a.id_baza)).get("emitent", ""))) \
+        if potriviri else ""
     existent = [r for r in potriviri if are_codul(r, a.cod) and acelasi_tip(r, a.denumire)
-                and r[0] != getattr(a, "la_item", "")]
+                and acelasi_emitent(r, emitent_act) and r[0] != getattr(a, "la_item", "")]
     pomenite = [r for r in potriviri if a.cod in (r[1] or "") and r not in existent]
     if existent and not a.la_data:
         arata_duplicatele(existent, a.cod, pomenite=pomenite)
@@ -1103,7 +1290,16 @@ def pregateste(a):
     lipsa = lipsuri(campuri)
     if lipsa:
         print("\nOPRIT: itemul ar ieși fără %s, deci n-ar trece de lista de legislație." % ", ".join(lipsa))
-        print("Dă-le explicit (de pildă `--scurt`, `--denumire`) și reia. Nu s-a scris nimic.")
+        # Ce scrie pagina, ca omul să compună câmpurile fără s-o deschidă. Nu se compun aici: denumirea din
+        # bibliotecă poartă funcția emitentului, iar la un ordin comun data adoptării nu e o singură dată.
+        h_baza = ia(AFIS % a.id_baza)
+        titlu = re.search(r'class="S_DEN"[^>]*>.*?</span>\s*<span class="S_(?:HDR|PAR)"[^>]*>(.*?)</span>', h_baza,
+                          re.S)
+        print("Pe pagină: %s %s" % (antet.get("denumire", ""),
+                                    re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", titlu.group(1)))).strip()
+                                    if titlu else ""))
+        print("Emitent: %s" % (antet.get("emitent") or "—"))
+        print("Dă-le explicit (`--denumire`, `--data`, `--scurt`) și reia. Nu s-a scris nimic.")
         return OPRIT
     return gata
 
@@ -1149,7 +1345,9 @@ def campuri_item(p):
     else:
         versiune = ("Versiune de pe pagina actului de bază, cu modificări până la %s, Portal "
                     "Legislativ (Ministerul Justiției)" % (p.get("cea_mai_noua") or "?"))
-    emitent = a.emitent or antet.get("emitent", "")
+    # Emitentul dat în comandă are întâietate; altfel, cel din antetul Portalului. Până la 15.10.2026, `--emitent`
+    # avea valoarea implicită „Parlamentul României", care lua locul antetului la orice act adus fără el.
+    emitent = a.emitent or emitent_din_antet(antet.get("emitent", ""))
     return {"nameOfAct": a.denumire, "codeNumber": a.cod, "shortTitle": a.scurt,
             # Itemul adus aici are metadatele luate din forma publicată și din textul formei, verificat
             # înainte de scriere (2.38.1): poartă de la început marcajul cerut la citare.
@@ -1258,7 +1456,7 @@ def main():
     p.add_argument("--denumire", default="")
     p.add_argument("--cod", default="", help="ex. 273/2006")
     p.add_argument("--scurt", default="", help="ex. Legea 273/2006")
-    p.add_argument("--emitent", default="Parlamentul României")
+    p.add_argument("--emitent", default="", help="lipsă = cel din antetul paginii Portalului")
     p.add_argument("--data", default="", help="dateEnacted, ex. 2006-06-29 29 iunie 2006")
     # Fără colecție implicită: „cadru normativ" era colecția proiectului ASEMT, iar un act depus
     # în colecția altui proiect se găsește mult mai greu decât o eroare. Trimiterea din `hcl-asemt`
@@ -1323,6 +1521,23 @@ def main():
             specuri.append(s)
     elif not a.id_baza:
         raise SystemExit("Dă id-ul paginii actului, sau `--lista fisier.json` pentru mai multe.")
+    # Codul și titlul oficial lipsă se citesc din pagină și se SPUN: codul din antet, titlul după Legea 24/2000,
+    # art. 41, cu funcția emitentului luată din formula introductivă (`titlu_oficial`).
+    for s in specuri:
+        if not getattr(s, "id_baza", "") or s.cauta:
+            continue
+        h_afis = None
+        if not getattr(s, "cod", ""):
+            h_afis = ia(AFIS % s.id_baza)
+            den = antet_act(h_afis).get("denumire", "")
+            s.cod = cod_din_antet(den)
+            if not s.cod:
+                raise SystemExit("Codul actului nu se citește din antetul paginii (%r). Dă-l cu --cod." % den)
+            print("cod citit din antetul paginii: %s (din %r; altul se dă cu --cod)" % (s.cod, den))
+        if not getattr(s, "denumire", ""):
+            s.denumire = titlu_oficial(h_afis or ia(AFIS % s.id_baza), s.cod)
+            if s.denumire:
+                print("titlu oficial compus din pagină: %r (altul se dă cu --denumire)" % s.denumire)
     # Titlul scurt lipsă se deduce din denumire și cod („Legea 76/2002”) și se SPUNE. Un nume
     # consacrat („Codul fiscal") nu se deduce; acela se dă cu `--scurt`.
     for s in specuri:

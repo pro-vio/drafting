@@ -60,6 +60,16 @@ deosebesc prin `dateEnacted`. Masurat pe 23 septembrie 2026: doua cicluri la opt
 distanta au adaugat aceleasi patru articole de doua ori, iar dublurile au iesit la iveala abia doua
 zile mai tarziu.
 
+**Cand dublura exista deja: care item ramane** (regula autorului, 15 octombrie 2026). In ordine:
+originalul (articolul publicat in revista, nu o copie a lui, si analog la celelalte tipuri); apoi cel
+care nu cere OCR; apoi cel citat; apoi oricare. Scopul regulii il spune autorul: „sa nu stergi notele
+si versiunile originale, cu care se lucreaza usor". Partea mecanica o face operatia `fuzioneaza` din
+`scrieri_amanate.py`: notele dublurii trec la itemul pastrat (nota de cache ramane, fiindca descrie
+fisierul dublurii), atasamentele cu adnotari sau note trec si ele, itemul pastrat intra in toate
+colectiile dublurii si primeste `dc:replaces`, iar dublura merge la cos. Ce ramane alege cine pune
+sarcina; operatia nu alege. Inainte de fuziune: textele se citesc si se compara (`adu_lege.py` spune
+„dublura" numai la text identic), iar cheile ambelor iteme se cauta in proiecte.
+
 ### Cauza a doua: ciclul de inchidere e o resursa unica
 
 `write_session` **cere** Zotero inchis la intrare — inchiderea o face omul sau agentul — si,

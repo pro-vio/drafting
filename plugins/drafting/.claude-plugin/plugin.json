@@ -1,7 +1,7 @@
 {
   "name": "drafting",
   "description": "Manuscrisul si aparatul lui: .docx editat ca schimbari urmarite (autor „Claude”), cu comentarii in fir si note de subsol, plus citari live si lista de referinte generate din Zotero (pandoc + citeproc, orice stil CSL) si o lista cronologica de legislatie pe care CSL nu o poate exprima. Include reparatiile de iteme direct in baza Zotero, auditul bibliotecii, reconcilierea atasamentelor duplicate, memoizarea textului din PDF-uri si aducerea actelor normative de pe Portalul Legislativ, in forma in vigoare la o data.",
-  "version": "2.52.0",
+  "version": "2.60.0",
   "author": {
     "name": "Viorel Proteasa"
   }

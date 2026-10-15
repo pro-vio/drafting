@@ -36,7 +36,10 @@ markers — unlike `Afis` on the act's own id, which stays the original form.
 - *The page is only a header.* Codul de procedură fiscală: consolidation 309358 has no article
   marker at all; the text — 430 articles, amended up to 08-05-2026 — is on `Afis/309359`,
   linked from the title in the header block (`S_HDR` inside `div_Formaconsolidata`). The base
-  page 170005 does the same, to 312603.
+  page 170005 does the same, to 312603. The header link is kept only if its page shows the same
+  form as selected; it can point to an older text (the 2025 forms of the Codul fiscal linked to
+  the text of 29.07.2024). Otherwise the tool takes, among the page's other `Afis` links, the one
+  whose page selects the requested form and carries the same adoption date, and says so.
 - *The annex is only a link.* HG 1/2016: the page has the decision's four articles, while the
   annex — the methodological norms, i.e. almost all of the act — is a title linking to another
   `Afis` page (306834 from consolidation 306833; 307847 from base page 174822).
@@ -99,7 +102,23 @@ modificări ale actului", not "fără modificări ulterioare": the Portal keeps 
 that was republished shows none). `--la-item CHEIE` attaches the form to an existing item without a file instead
 of creating one; fields the Portal cannot give (a Buletinul Oficial publication) stay as the item has them. `adu_lege.py` refuses, before writing, an item that would lack any
 of these fields, and derives a missing short title from the act type and number ("Legea 76/2002",
-"OUG 111/2010"); a customary name ("Codul fiscal") is given with `--scurt`.
+"OUG 111/2010"); a customary name ("Codul fiscal") is given with `--scurt`. A missing `--cod` is read from the
+page header ("nr. 69 din 13 noiembrie 2019" gives `69/2019`; a joint order, "nr. 299/455/435/729/2025", keeps all
+its numbers) and printed. A missing `--denumire` is composed as the official title of Legea 24/2000, art. 41: the
+generic name by legal category and issuing authority, the number and year, then the object ("Legea nr. 24/2000
+privind …", "Ordonanța de urgență a Guvernului nr. …", "Hotărârea Guvernului nr. …"). For an order, the issuer's
+function is taken from the act's own introductory formula ("ministrul sănătății și președintele Casei … emit
+următorul ordin" gives "Ordinul ministrului sănătății și al președintelui Casei … nr. …"), not from the header,
+which names the institution (the author's decision, 15.10.2026). A function the tool does not know, or an act type
+it does not compose, stops the run and prints the page's heading, title and issuers. A joint order's adoption
+date is the **first** signature among its issuers (the author's decision, 15.10.2026; Legea 24/2000, art. 46 (3),
+dates an act by its signature but does not say which one when the issuers sign on different days).
+
+When the library already holds several items for the requested form, `adu_lege.py` files none of them and reads
+their memoized texts first (the author's decision, 15.10.2026: a duplicate is declared only after reading). The
+comparison skips the header the tool itself writes into the PDF, up to the `=` line. Same text: it reports a
+duplicate, with the keys, and leaves the merge to the author. Different texts, or a text not memoized: it says so
+and claims nothing.
 
 A consolidated form is named by the decision that produced it, as the Monitorul Oficial names it
 ("cu modificările și completările ulterioare, inclusiv cele aduse prin …"): `adu_lege.py` reads the
