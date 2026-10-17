@@ -49,6 +49,8 @@ nu preventiv.
     python scrieri_amanate.py --arata          # ce așteaptă, și de la cine
     python scrieri_amanate.py --ruleaza        # le scrie pe toate, într-un ciclu (Zotero ÎNCHIS)
     python scrieri_amanate.py --ruleaza --sec  # arată ce s-ar face, fără să scrie
+    python scrieri_amanate.py --anuleaza NUME --motiv "…"  # scoate sarcina din coadă (o mută în `anulate/`)
+    python scrieri_amanate.py --restaureaza NUME  # o pune înapoi în coadă
 
 Ca funcție, din sesiunea care e blocată:
 
@@ -382,6 +384,10 @@ def ruleaza(doar_arata=False):
 
     Fiecare sarcină în punctul ei de salvare: dacă una cade, se derulează înapoi numai ea."""
     lot = sarcini()
+    anulate = os.path.join(DOSAR, "anulate")
+    n_anulate = len([f for f in os.listdir(anulate) if f.endswith(".json")]) if os.path.isdir(anulate) else 0
+    if n_anulate and doar_arata:
+        print("(%d sarcini anulate stau în %s; `--restaureaza NUME` pune una înapoi)" % (n_anulate, anulate))
     if not lot:
         print("Nicio sarcină amânată.")
         return 0
@@ -447,8 +453,40 @@ def ruleaza(doar_arata=False):
     return 1 if cazute else 0
 
 
+def anuleaza(nume, inapoi=False, motiv=""):
+    """Scoate o sarcină din coadă fără s-o șteargă: fișierul trece în `anulate/`, de unde `--restaureaza` îl pune
+    înapoi. Cazul (17.10.2026): autorul a decis că un act pus în coadă nu intră în corpus, iar coada n-avea pe unde
+    să primească decizia — la următorul `--ruleaza`, actul s-ar fi scris peste verdictul lui."""
+    import shutil  # noqa: PLC0415
+    nume = os.path.basename(nume)
+    if not nume.endswith(".json"):
+        nume += ".json"
+    anulate = os.path.join(DOSAR, "anulate")
+    sursa, tinta = (os.path.join(anulate, nume), os.path.join(DOSAR, nume)) if inapoi else \
+        (os.path.join(DOSAR, nume), os.path.join(anulate, nume))
+    if not os.path.isfile(sursa):
+        print("Nu există %s." % sursa)
+        return 1
+    os.makedirs(anulate, exist_ok=True)
+    if not inapoi:
+        # Motivul stă în sarcina însăși, ca să nu se piardă de ea (propunerea din registru, 17.10.2026).
+        d = json.loads(io.open(sursa, encoding="utf-8").read())
+        d["anulata"] = {"motiv": motiv or "(nedat)", "la": time.strftime("%Y-%m-%d %H:%M:%S")}
+        io.open(sursa, "w", encoding="utf-8").write(json.dumps(d, ensure_ascii=False, indent=1))
+    shutil.move(sursa, tinta)
+    print("%s: %s -> %s" % ("restaurată" if inapoi else "anulată", sursa, tinta))
+    return 0
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
+    for fel in ("--anuleaza", "--restaureaza"):
+        if fel in args:
+            i = args.index(fel)
+            if i + 1 >= len(args):
+                sys.exit("Dă numele sarcinii, cum îl arată `--arata` (de pildă 20261017-101500-1234.json).")
+            motiv = args[args.index("--motiv") + 1] if "--motiv" in args and args.index("--motiv") + 1 < len(args) else ""
+            sys.exit(anuleaza(args[i + 1], inapoi=fel == "--restaureaza", motiv=motiv))
     if "--arata" in args:
         sys.exit(ruleaza(doar_arata=True))
     if "--ruleaza" in args:

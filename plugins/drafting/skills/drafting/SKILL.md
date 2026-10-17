@@ -123,7 +123,8 @@ direct în `zotero.sqlite`, cu Zotero închis și cu backup. Toate scrierile une
 
 **Ce n-ai putut scrie se lasă, nu se pierde.** Când Zotero e ținut deschis de altcineva,
 `scrieri_amanate.py` primește sarcina ca **date** — nu ca script —, iar prima sesiune care ajunge
-la baza liberă o scrie odată cu ale celorlalți, într-un singur ciclu.
+la baza liberă o scrie odată cu ale celorlalți, într-un singur ciclu. O sarcină răzgândită se scoate cu
+`--anuleaza NUME --motiv "…"`, care o mută în `anulate/` cu motivul scris în ea, nu o șterge; `--restaureaza NUME` o pune înapoi.
 
 **Nu ești singur în Zotero.** `write_session` își ia rândul înaintea închiderii și așteaptă
 dacă scrie altcineva, deci scrierile paralele nu se mai calcă. Iar când contează în ce colecție
